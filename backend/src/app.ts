@@ -1,0 +1,16 @@
+import express from "express";
+import authRoutes from "./routes/auth.routes";
+import workspaceRouter from "./routes/workspace.route";
+import inviteMemberRouter from "./routes/workspace_invite_route";
+import suiteRouter from "./routes/workspace_suite_route";
+import testCaseRouter from "./routes/test_case_route";
+import jobRouter from "./routes/job.routes";
+const app = express();
+app.use(express.json());
+app.use("/api/auth", authRoutes);
+app.use("/api/workspace", workspaceRouter);
+app.use("/api/workspace", inviteMemberRouter);
+app.use("/api/workspace", suiteRouter);
+app.use("/api/workspace", testCaseRouter);
+app.use("/", jobRouter);
+export default app;
