@@ -11,7 +11,7 @@ export async function signupController(req: Request, res: Response) {
     const { email, password, name } = req.body;
     const data = await signupService({ email, password, name });
 
-    res.status(201).json({ mesg: "Verification email sent", data });
+    res.status(201).json({ mesg: "Signup successful", data });
   } catch (error: any) {
     res.status(400).json({ mesg: error.mesg });
   }
@@ -22,7 +22,16 @@ export async function signinController(req: Request, res: Response) {
   try {
     const { email, password } = req.body;
     const data = await signinService({ email, password });
-    res.status(200).json({ mesg: "sign in successful", data });
+    const safeResponse = {
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.user_metadata.name,
+        role: data.user.role,
+      },
+      accessToken: data.session.access_token,
+    };
+    res.status(200).json({ mesg: "sign in successful", data: safeResponse });
   } catch (error: any) {
     console.error("SIGNIN CONTROLLER ERROR:", error);
     res.status(400).json({ mesg: error.mesg });
