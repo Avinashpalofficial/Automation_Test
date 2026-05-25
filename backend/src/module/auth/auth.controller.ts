@@ -5,6 +5,7 @@ import { oauthSignInService } from "./auth.servic";
 import { signOutService } from "./auth.servic";
 import { supabase } from "../../config/supabase";
 
+/**user sign up */
 export async function signupController(req: Request, res: Response) {
   try {
     const { email, password, name } = req.body;
@@ -27,7 +28,7 @@ export async function signinController(req: Request, res: Response) {
     res.status(400).json({ mesg: error.mesg });
   }
 }
-
+/**oauthSignInController */
 export async function oauthSignInController(req: Request, res: Response) {
   try {
     const provider = req.params.provider;
@@ -54,6 +55,7 @@ export async function oauthSignInController(req: Request, res: Response) {
     });
   }
 }
+/**auth callback controller */
 export const authCallbackController = async (req: Request, res: Response) => {
   try {
     const code = req.query.code as string;
@@ -83,6 +85,8 @@ export const authCallbackController = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**sign out controller */
 export async function signOutController(req: Request, res: Response) {
   try {
     const data = await signOutService();
