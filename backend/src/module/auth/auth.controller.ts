@@ -19,9 +19,9 @@ export async function signupController(req: Request, res: Response) {
       },
       accessToken: data.session?.access_token,
     };
-    res.status(201).json({ mesg: "Signup successful", data: response });
+    res.status(201).json({ mesg: "Signup successful", data });
   } catch (error: any) {
-    res.status(400).json({ mesg: "user_already_exists" });
+    res.status(400).json({ mesg: error.mesg });
   }
 }
 

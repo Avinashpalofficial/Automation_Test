@@ -61,3 +61,11 @@ export const transferWorkspaceSchema = z.object({
     message: "Type must be TRANSFER",
   }),
 });
+
+/**schema for update member role */
+export const updateMemberRoleSchema = z.object({
+  name: z
+    .string()
+    .min(4, "Name must be at least 4 characters long")
+    .max(20, "Name must be at most 20 characters long"),
+});
