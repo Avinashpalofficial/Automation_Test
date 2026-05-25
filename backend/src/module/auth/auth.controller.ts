@@ -10,10 +10,18 @@ export async function signupController(req: Request, res: Response) {
   try {
     const { email, password, name } = req.body;
     const data = await signupService({ email, password, name });
-
-    res.status(201).json({ mesg: "Signup successful", data });
+    const response = {
+      user: {
+        id: data.user?.id,
+        email: data.user?.email,
+        name: data.user?.user_metadata.name,
+        role: data.user?.role,
+      },
+      accessToken: data.session?.access_token,
+    };
+    res.status(201).json({ mesg: "Signup successful", data: response });
   } catch (error: any) {
-    res.status(400).json({ mesg: error.mesg });
+    res.status(400).json({ mesg: "user_already_exists" });
   }
 }
 
