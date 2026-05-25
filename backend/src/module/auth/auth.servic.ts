@@ -56,7 +56,7 @@ export async function oauthSignInService(provider: string) {
     provider: provider as "google" | "github",
 
     options: {
-      redirectTo: "http://localhost:3000/auth/callback",
+      redirectTo: "http://localhost:3000/api/auth/callback",
     },
   });
 

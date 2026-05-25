@@ -3,13 +3,16 @@ import { signinService } from "./auth.servic";
 import { Request, Response } from "express";
 import { oauthSignInService } from "./auth.servic";
 import { signOutService } from "./auth.servic";
+import { supabase } from "../../config/supabase";
+
 export async function signupController(req: Request, res: Response) {
   try {
     const { email, password, name } = req.body;
     const data = await signupService({ email, password, name });
-    res.status(201).json({ mesg: "User signed up successfully", data });
-  } catch (error) {
-    res.status(400).json({ mesg: "Error occurred while signing up" });
+
+    res.status(201).json({ mesg: "Verification email sent", data });
+  } catch (error: any) {
+    res.status(400).json({ mesg: error.mesg });
   }
 }
 
@@ -18,10 +21,10 @@ export async function signinController(req: Request, res: Response) {
   try {
     const { email, password } = req.body;
     const data = await signinService({ email, password });
-    res.status(200).json({ mesg: "sing in successful", data });
-  } catch (error) {
+    res.status(200).json({ mesg: "sign in successful", data });
+  } catch (error: any) {
     console.error("SIGNIN CONTROLLER ERROR:", error);
-    res.status(400).json({ mesg: "Error occurred while signing in" });
+    res.status(400).json({ mesg: error.mesg });
   }
 }
 
@@ -51,7 +54,35 @@ export async function oauthSignInController(req: Request, res: Response) {
     });
   }
 }
+export const authCallbackController = async (req: Request, res: Response) => {
+  try {
+    const code = req.query.code as string;
 
+    if (!code) {
+      return res.status(400).json({
+        error: "No code provided",
+      });
+    }
+
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+      return res.status(400).json({
+        error: error.message,
+      });
+    }
+
+    return res.status(200).json({
+      message: "OAuth login successful",
+      session: data.session,
+      user: data.user,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error.message,
+    });
+  }
+};
 export async function signOutController(req: Request, res: Response) {
   try {
     const data = await signOutService();

@@ -4,19 +4,11 @@ interface CreateWorkspaceServiceInput {
   name: string;
   createdBy: string;
 }
+/* create workspace  */
 export async function createWorkspaceService({
   name,
   createdBy,
 }: CreateWorkspaceServiceInput) {
-  // validation
-  if (!name || !name.trim()) {
-    throw new Error("Workspace name is required");
-  }
-
-  if (name.length < 3) {
-    throw new Error("Workspace name must be at least 3 characters");
-  }
-
   const workspaceId = generateWorkspaceId();
 
   // insert workspace
@@ -38,3 +30,5 @@ export async function createWorkspaceService({
 
   return data;
 }
+
+/*  Get Workspace*/
