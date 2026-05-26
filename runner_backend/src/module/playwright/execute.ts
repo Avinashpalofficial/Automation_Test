@@ -29,6 +29,8 @@ export async function playwrightExecute(jobId: string) {
     /*
       fetch job
     */
+    console.log("ID:", jobId);
+
     await updateRunnerJobStatus(jobId, "running");
     const jobDetails = await getRunnerJob(jobId);
 
@@ -45,7 +47,7 @@ export async function playwrightExecute(jobId: string) {
     */
 
     browser = await chromium.launch({
-      headless: false,
+      headless: false, //  browser show in your  dashboard  // if  headless:true  then browser internally work
     });
 
     console.log("BROWSER OPENED");

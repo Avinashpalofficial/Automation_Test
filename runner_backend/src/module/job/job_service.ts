@@ -76,21 +76,23 @@ export async function updateRunnerJobStatus(
   status: string,
   errorSummary?: string,
 ) {
+  const updateData: any = {
+    status,
+    error_summary: errorSummary ?? null,
+  };
+
+  // set finish time when completed
+  if (status === "passed" || status === "failed") {
+    updateData.finished_at = new Date().toISOString();
+  }
+
   const { error } = await runnerSupabaseClient
-
     .from("jobs")
-
-    .update({
-      status,
-
-      error_summary: errorSummary || null,
-    })
-
+    .update(updateData)
     .eq("id", jobId);
 
   if (error) {
     console.error(error);
-
     throw new Error("Failed to update job status");
   }
 }
