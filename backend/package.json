@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.105.3",
     "axios": "^1.16.1",
     "dotenv": "^17.4.2",
@@ -19,6 +20,8 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "nodemailer": "^8.0.7",
+    "openai": "^6.42.0",
+    "playwright": "^1.60.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

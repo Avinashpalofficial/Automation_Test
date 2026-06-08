@@ -4,15 +4,20 @@ import {
   generateExecutionId,
   generateTestCaseId,
 } from "../../utils/generate-id";
-import { id } from "zod/locales";
+
 import axios from "axios";
+interface TestStep {
+  action: string;
+  selector?: string;
+  value?: string;
+}
 interface CreateTestCaseInput {
   workspaceId: string;
   suiteId: string | null;
   name: string;
   description?: string;
   targetUrl?: string;
-  steps: string[];
+  steps: TestStep[];
   createdBy: string;
 }
 

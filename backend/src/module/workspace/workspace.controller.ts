@@ -2,8 +2,6 @@ import { createWorkspaceService } from "./workspace.service";
 import { Request, Response } from "express";
 export async function createWorkspaceController(req: Request, res: Response) {
   try {
-    const userId = req.user?.id;
-
     const workspace = await createWorkspaceService({
       name: req.body.name,
       createdBy: req.user!.id,
