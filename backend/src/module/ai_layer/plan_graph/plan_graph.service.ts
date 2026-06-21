@@ -1,7 +1,15 @@
 import { StepAction, TestStep } from "@automation/shared/src";
 import { AtomicGoal, ParsedIntent } from "../intent_parser/intent_parser_type";
 import { PlanContext, PlanGraphResult } from "./plan_graph.types";
-
+import { resolveValueForGoal } from "./value_resolver";
+import {
+  flattenExcutionOrder,
+  step,
+  normalizeGoalType,
+  collectRiskWarnings,
+  isInitialNavigation,
+  slug,
+} from "./helper_function";
 export function buildPlanGraph(intent: ParsedIntent): PlanGraphResult {
   const ctx: PlanContext = {
     userProvidedValues: intent.userProvidedValues || {},
@@ -86,7 +94,7 @@ export function buildPlanGraph(intent: ParsedIntent): PlanGraphResult {
     hint: string,
   ): TestStep[] {
     const desc = goal.description.toLowerCase();
-    const resolved = resolveValueForGoals(goal, ctx);
+    const resolved = resolveValueForGoal(goal, ctx);
     if (resolved.isSecret && resolved.secretKey) {
       ctx.requiredSecrets.add(resolved.secretKey);
     }
@@ -122,5 +130,98 @@ export function buildPlanGraph(intent: ParsedIntent): PlanGraphResult {
       out.push(step("wait_for_navigation", goal, {}));
     }
     return out;
+  }
+  function buildExtractSteps(goal: AtomicGoal, hint: string): TestStep[] {
+    const varName =
+      (goal.produceContext && goal.produceContext[0]) || slug(goal.description);
+    return [
+      step("capture_value", goal, {
+        targetHint: hint,
+        variableName: varName,
+      }),
+    ];
+  }
+  function buildAssertSteps(
+    goal: AtomicGoal,
+    ctx: PlanContext,
+    hint: string,
+  ): TestStep[] {
+    const desc = goal.description.toLowerCase();
+    const resolved = resolveValueForGoal(goal, ctx);
+    if (/\burl|page|redirect|navigat/.test(desc)) {
+      return [
+        step("assert_url_contains", goal, {
+          value: resolved.value,
+        }),
+      ];
+    }
+    if (resolved.value && resolved.value.startsWith("{{")) {
+      return [
+        step("assert_captured_value_equals", goal, {
+          targetHint: hint,
+          value: resolved.value,
+        }),
+      ];
+    }
+    if (resolved.value !== undefined) {
+      return [
+        step("assert_text", goal, {
+          targetHint: hint,
+          value: resolved.value,
+        }),
+      ];
+    }
+    return [
+      step("assert_visible", goal, {
+        targetHint: hint,
+      }),
+    ];
+  }
+  function buildConditionalSteps(
+    goal: AtomicGoal,
+    ctx: PlanContext,
+    hint: string,
+  ): TestStep[] {
+    const cond = goal.condition;
+    if (!cond) {
+      // condition meta nahi -> safe optional click
+      return [
+        step("click_if_exists", goal, { targetHint: hint, optional: true }),
+      ];
+    }
+
+    switch (cond.type) {
+      case "if_exists":
+        return [
+          step("click_if_exists", goal, {
+            targetHint: cond.target || hint,
+            optional: true,
+          }),
+        ];
+
+      case "if_visible":
+        return [
+          step("assert_visible", goal, {
+            targetHint: cond.target || hint,
+            optional: true,
+          }),
+        ];
+
+      case "if_value_equals": {
+        const resolved = resolveValueForGoal(goal, ctx);
+        return [
+          step("assert_captured_value_equals", goal, {
+            targetHint: cond.target || hint,
+            value: resolved.value,
+            optional: true,
+          }),
+        ];
+      }
+
+      default:
+        return [
+          step("click_if_exists", goal, { targetHint: hint, optional: true }),
+        ];
+    }
   }
 }
