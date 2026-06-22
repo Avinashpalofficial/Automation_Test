@@ -1,76 +1,45 @@
 import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ParsedIntent, RiskFlag } from "./intent_parser_type";
 
 export class IntentParser {
-  private groqClient: OpenAI;
-  private geminiClient: GoogleGenerativeAI;
-  private openRouterClient: OpenAI;
-  private fallbackModels: Array<{
-    provider: "groq" | "gemini" | "openrouter";
+  private nvidiaClient: OpenAI;
+  private fallBackModels: Array<{
+    provider: "nvidia";
     model: string;
     client: any;
   }>;
-
   constructor() {
-    this.geminiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    this.openRouterClient = new OpenAI({
-      apiKey: process.env.OPENROUTER_API_KEY,
-      baseURL: "https://openrouter.ai/api/v1",
+    this.nvidiaClient = new OpenAI({
+      apiKey: process.env.NVIDIA_API_KEY,
+      baseURL: "https://integrate.api.nvidia.com/v1",
     });
-    this.groqClient = new OpenAI({
-      apiKey: process.env.GROQ_API_KEY,
-      baseURL: "https://api.groq.com/openai/v1",
-    });
-    this.fallbackModels = [
+    this.fallBackModels = [
       {
-        provider: "gemini",
-        model: "gemini-2.5-flash",
-        client: this.geminiClient,
-      }, // Fast
-      {
-        provider: "gemini",
-        model: "gemini-1.5-pro",
-        client: this.geminiClient,
-      }, // Powerful
-
-      {
-        provider: "openrouter",
-        model: "deepseek/deepseek-chat-v3-0324:free",
-        client: this.openRouterClient,
+        provider: "nvidia",
+        model: "meta/llama-3.3-70b-instruct",
+        client: this.nvidiaClient,
       },
       {
-        provider: "openrouter",
-        model: "qwen/qwen3-32b:free",
-        client: this.openRouterClient,
+        provider: "nvidia",
+        model: "nvidia/nemotron-3-super-120b-a12b",
+        client: this.nvidiaClient,
       },
       {
-        provider: "openrouter",
-        model: "meta-llama/llama-3.3-70b-instruct:free",
-        client: this.openRouterClient,
+        provider: "nvidia",
+        model: "meta/llama-3.1-8b-instruct",
+        client: this.nvidiaClient,
       },
-      // Groq ke naye models (Latest)
       {
-        provider: "groq",
-        model: "llama-3.3-70b-versatile",
-        client: this.groqClient,
-      }, // Best
-      {
-        provider: "groq",
-        model: "llama-3.1-8b-instant",
-        client: this.groqClient,
-      }, // Fast
-      { provider: "groq", model: "gemma2-9b-it", client: this.groqClient }, // Good
-      {
-        provider: "groq",
-        model: "deepseek-r1-distill-llama-70b",
-        client: this.groqClient,
-      }, // New
+        provider: "nvidia",
+        model: "nemotron-3-ultra-550b-a55b",
+        client: this.nvidiaClient,
+      },
     ];
   }
   async parse(prompt: string, pageurl: string): Promise<ParsedIntent> {
     const decomposed = await this.decomposePrompt(prompt, pageurl); //Raw decomposition
-    const withDependencies = this.buildDependencyGraph(decomposed); //build dependency graph
+    const normalized = this.normalizeGoals(decomposed);
+    const withDependencies = this.buildDependencyGraph(normalized); //build dependency graph
     const withvalues = this.extractUserValues(prompt, withDependencies); //extract user provided values
     const withRisk = this.assessRisks(withvalues); // Risk assessment
     const final = this.calculateExecutionOrder(withRisk); //Calculate execution order
@@ -118,7 +87,7 @@ Decompose this into atomic goals. Return:
       "description": "what this goal does",
       "dependsOn": [],
       "requiredContext": [],
-      "producesContext": [],
+      "produceContext": [],
       "possibleFailures": [],
       "expectsNavigation": false
     }
@@ -128,41 +97,45 @@ Decompose this into atomic goals. Return:
   "ambiguities": []
 }
 `;
-    for (const { provider, model, client } of this.fallbackModels) {
+    for (const { provider, model, client } of this.fallBackModels) {
+      console.log("BEFORE AI CALL");
       try {
+        console.time("AI_CALL");
         let content = "";
-        if (provider === "groq" || provider === "openrouter") {
-          const response = await client.chat.completions.create({
-            model,
-            temperature: 0,
-            response_format: { type: "json_object" },
-            message: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-          });
-          content = response.choices[0].message.content || "";
-        } else if (provider === "gemini") {
-          const geminiModel = client.getGenerativeModel({
-            model,
-          });
-          const result = await geminiModel.generateContent(`
-${systemPrompt}
-
-${userPrompt}
-
-Return ONLY valid JSON.
-`);
-
-          content = result.response.text();
+        if (provider === "nvidia") {
+          const response = await client.chat.completions.create(
+            {
+              model,
+              temperature: 0,
+              max_tokens: 4096,
+              messages: [
+                {
+                  role: "system",
+                  content: systemPrompt,
+                },
+                {
+                  role: "user",
+                  content: userPrompt,
+                },
+              ],
+            },
+            {
+              timeout: 30_000,
+            },
+          );
+          console.timeEnd("AI_CALL");
+          console.log("after AI CALL");
+          content = response.choices[0]?.message?.content || "";
+          content = content
+            .replace(/```json/gi, "")
+            .replace(/```/g, "")
+            .trim();
+          const parsed = JSON.parse(content);
+          return {
+            originalPrompt: prompt,
+            ...parsed,
+          };
         }
-
-        const parsed = JSON.parse(content);
-
-        return {
-          originalPrompt: prompt,
-          ...parsed,
-        };
       } catch (error) {
         console.warn(`${provider}/${model} failed`, error);
       }
@@ -193,7 +166,19 @@ Return ONLY valid JSON.
     }
     return { ...intent, goals };
   }
-
+  private normalizeGoals(intent: Partial<ParsedIntent>): Partial<ParsedIntent> {
+    const goals = (intent.goals || []).map((g) => ({
+      ...g,
+      dependsOn: g.dependsOn ?? [],
+      requiredContext: g.requiredContext ?? [],
+      produceContext:
+        (g as any).produceContext ?? (g as any).producesContext ?? [],
+      possibleFailure:
+        (g as any).possibleFailure ?? (g as any).possibleFailures ?? [],
+      expectsNavigation: g.expectsNavigation ?? false,
+    }));
+    return { ...intent, goals };
+  }
   /**extract user provided values */
   private extractUserValues(
     prompt: string,
