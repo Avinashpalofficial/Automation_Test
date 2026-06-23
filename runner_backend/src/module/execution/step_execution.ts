@@ -87,3 +87,29 @@ export async function markStepFinished(
     .eq("id", id);
   if (error) throw new Error("Failed to mark step finished");
 }
+
+/**add_step_cost */
+
+export async function addStepCost(
+  id: string,
+  tokens: number,
+  costUsd: number,
+): Promise<void> {
+  const { data, error } = await runnerSupabaseClient
+    .from(TABLE)
+    .select("token_total,cost_usd,attempts_count")
+    .eq("id", id)
+    .single();
+  if (!data || error) {
+    throw new Error("Step not found for cost rollup");
+  }
+  const { error: upErr } = await runnerSupabaseClient
+    .from(TABLE)
+    .update({
+      token_total: (data.token_total ?? 0) + tokens,
+      cost_usd: (data.cost_usd ?? 0) + costUsd,
+      attempts_count: data.attempts_count,
+    })
+    .eq("id", id);
+  if (upErr) throw new Error("Failed to roll up step cost");
+}
