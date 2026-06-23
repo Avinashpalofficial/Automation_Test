@@ -2,6 +2,7 @@ import { StepsSchema, TestStep } from "@automation/shared";
 import { StepExecutionRow } from "./execution.types";
 import { StepStatus } from "./execution.types";
 import { runnerSupabaseClient } from "../../config/supabase";
+import { finished } from "node:stream";
 const TABLE = "step_executions";
 export async function fanOutSteps(
   jobId: string,
@@ -49,4 +50,40 @@ export async function getStepForJob(
   }
   return (data ??
     []) as StepExecutionRow[]; /**?? mean of  'Agar left side ki value null ya undefined hai, to right side ki value use karo.' */
+}
+
+/** mark step running means that test cases is under running */
+export async function markStepRunning(id: string): Promise<void> {
+  const { error } = await runnerSupabaseClient
+    .from(TABLE)
+    .update({ status: "running", started_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error("Failed to mark step running");
+}
+
+/**mark_step_finished -> execution complete hone ke bad kya hua  */
+
+export async function markStepFinished(
+  id: string,
+  status: Extract<StepStatus, "passed" | "failed" | "skipped" | "blocked">,
+  opts: {
+    errorSummary?: string;
+    blockReason?: string;
+    resolveSelector?: string;
+  },
+): Promise<void> {
+  const { error } = await runnerSupabaseClient
+    .from(TABLE)
+    .update({
+      status,
+      finished_at: new Date().toISOString(),
+      error_summary: opts.errorSummary ?? null,
+      block_reason: opts.blockReason ?? null,
+      resolve_selector: opts.resolveSelector ?? null,
+      ...(opts.resolveSelector
+        ? { resolve_selector: opts.resolveSelector }
+        : {}),
+    })
+    .eq("id", id);
+  if (error) throw new Error("Failed to mark step finished");
 }
