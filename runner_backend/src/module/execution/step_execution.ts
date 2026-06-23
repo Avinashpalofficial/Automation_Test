@@ -32,3 +32,21 @@ export async function fanOutSteps(
   }
   return (data ?? []) as StepExecutionRow[];
 }
+
+/**Load all steps for a job in execution order */
+
+export async function getStepForJob(
+  jobId: string,
+): Promise<StepExecutionRow[]> {
+  const { data, error } = await runnerSupabaseClient
+    .from(TABLE)
+    .select("*")
+    .eq("job_id", jobId)
+    .order("step_index", { ascending: true });
+  if (error) {
+    console.error("getsetpforjob failed", error);
+    throw new Error("failed to load step_execution_order");
+  }
+  return (data ??
+    []) as StepExecutionRow[]; /**?? mean of  'Agar left side ki value null ya undefined hai, to right side ki value use karo.' */
+}
