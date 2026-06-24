@@ -2,12 +2,19 @@ import { StepsSchema, TestStep } from "@automation/shared";
 import { StepExecutionRow } from "./execution.types";
 import { StepStatus } from "./execution.types";
 import { runnerSupabaseClient } from "../../config/supabase";
-import { finished } from "node:stream";
 const TABLE = "step_executions";
+/**
+ * Fan out a job's plan-graph steps into per-step rows (status = 'pending').
+ * Call this once at intake, right after the jobs row is inserted.
+ *
+ * `steps` MUST be the structured TestStep[] produced by the Manager plan_graph
+ * (not legacy string[]). It is gated through StepsSchema here — this is the
+ * boundary validation the shared contract expects the Runner to enforce.
+ */
 export async function fanOutSteps(
   jobId: string,
   steps: unknown,
-  attemptId: string | null,
+  attemptId: string | null = null,
 ): Promise<StepExecutionRow[]> {
   const parsed: TestStep[] = StepsSchema.parse(steps);
   const rows = parsed.map((s, i) => ({
@@ -112,4 +119,37 @@ export async function addStepCost(
     })
     .eq("id", id);
   if (upErr) throw new Error("Failed to roll up step cost");
+}
+/**Increment attempts_count after creating an action_attempt */
+export async function bumpAttemptsCount(id: string): Promise<void> {
+  const { data, error } = await runnerSupabaseClient
+    .from(TABLE)
+    .select("attempts_count")
+    .eq("id", id)
+    .single();
+  if (!data || error) {
+    throw new Error("Step not found");
+  }
+  const { error: upErr } = await runnerSupabaseClient
+    .from(TABLE)
+    .update({ attempts_count: (data.attempts_count ?? 0) + 1 })
+    .eq("id", id);
+  if (upErr) throw new Error("Failed to bump attempts_count");
+}
+
+/**Increment retry_count on self heal */
+export async function bumpRetryCount(id: string): Promise<void> {
+  const { data, error } = await runnerSupabaseClient
+    .from(TABLE)
+    .select("retry_count")
+    .eq("id", id)
+    .single();
+  if (!data || error) {
+    throw new Error("Step not found");
+  }
+  const { error: upErr } = await runnerSupabaseClient
+    .from(TABLE)
+    .update({ retry_count: (data.retry_count ?? 0) + 1 })
+    .eq("id", id);
+  if (upErr) throw new Error("Failed to bump retry_count");
 }

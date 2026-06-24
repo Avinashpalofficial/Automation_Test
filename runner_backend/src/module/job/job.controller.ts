@@ -1,5 +1,4 @@
 import { submitJobService } from "./job_service";
-import { runnerSupabaseClient } from "../../config/supabase";
 import { Request, Response } from "express";
 
 export async function submitJobController(req: Request, res: Response) {
