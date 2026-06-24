@@ -1,5 +1,3 @@
-// ============================================================
-// plan_graph.types.ts
 // Output contract of the Manager-side "Test plan graph" stage.
 // Intent DAG (ParsedIntent)  ->  normalized, SELECTOR-FREE steps.
 //

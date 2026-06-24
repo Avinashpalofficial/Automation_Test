@@ -1,465 +1,351 @@
-import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { z } from "zod";
+// import OpenAI from "openai";
+// import { IntentParser } from "../intent_parser/intent_parser.service";
+// import { AtomicGoal, ParsedIntent } from "../intent_parser/intent_parser_type";
+// import { TestCase, TestStep, StepAction } from "../../../types/test-case.types";
+// import {
+//   compressDOMForAI,
+//   CompressedDOM,
+// } from "../dom_compressor/dom_compressor";
+// import { SPAPageData } from "../page_analyzer/spa-page-analyzer.service";
 
-// ============= Type Definitions =============
+// // ─── Zod-less runtime shape check for AI output ────────────────
+// // (Use your existing Zod TestCaseSchema here instead if preferred —
+// //  this keeps the file self-contained.)
+// function isValidStepArray(value: unknown): value is TestStep[] {
+//   return (
+//     Array.isArray(value) &&
+//     value.every((s) => typeof s === "object" && s !== null && "action" in s)
+//   );
+// }
 
-// Zod Schema for validation
-const ActionSchema = z.enum([
-  "click",
-  "fill",
-  "select",
-  "hover",
-  "wait",
-  "scroll",
-  "press",
-  "navigate",
-  "assert_exists",
-  "assert_visible",
-  "assert_text",
-  "assert_value",
-]);
+// const VALID_ACTIONS: StepAction[] = [
+//   "click",
+//   "fill",
+//   "select",
+//   "hover",
+//   "check",
+//   "uncheck",
+//   "press_key",
+//   "scroll_into_view",
+//   "wait_for_selector",
+//   "wait_for_navigation",
+//   "click_if_exists",
+//   "capture_value",
+//   "assert_text",
+//   "assert_visible",
+//   "assert_url_contains",
+//   "assert_element_count",
+//   "assert_captured_value_equals",
+// ];
 
-// Base Step Schema
-const BaseStepSchema = z.object({
-  action: ActionSchema,
-  selector: z.string().optional(),
-  value: z.string().optional(),
-  wait_after_ms: z.number().min(0).max(30000).optional().default(500),
-  retry_count: z.number().min(0).max(5).optional().default(1),
-  description: z.string().optional(),
-  optional: z.boolean().optional().default(false),
-});
+// export class AITestPlanner {
+//   private nvidiaClient: OpenAI;
+//   private fallBackModels: Array<{
+//     provider: "nvidia";
+//     model: string;
+//     client: any;
+//   }>;
+//   constructor() {
+//     this.nvidiaClient = new OpenAI({
+//       apiKey: process.env.NVIDIA_API_KEY,
+//       baseURL: "https://integrate.api.nvidia.com/v1",
+//     });
+//     this.fallBackModels = [
+//       {
+//         provider: "nvidia",
+//         model: "meta/llama-3.3-70b-instruct",
+//         client: this.nvidiaClient,
+//       },
+//       {
+//         provider: "nvidia",
+//         model: "nvidia/nemotron-3-super-120b-a12b",
+//         client: this.nvidiaClient,
+//       },
+//       {
+//         provider: "nvidia",
+//         model: "meta/llama-3.1-8b-instruct",
+//         client: this.nvidiaClient,
+//       },
+//       {
+//         provider: "nvidia",
+//         model: "nemotron-3-ultra-550b-a55b",
+//         client: this.nvidiaClient,
+//       },
+//     ];
+//   }
+//   // ─── Entry point ───────────────────────────────────────────
 
-// Refined Step Schema with validation
-const StepSchema = BaseStepSchema.refine(
-  (data) => {
-    const needsSelector = [
-      "click",
-      "fill",
-      "select",
-      "hover",
-      "scroll",
-      "assert_exists",
-      "assert_visible",
-      "assert_text",
-      "assert_value",
-    ];
+//   async generateTestCase(
+//     prompt: string,
+//     pageData: SPAPageData,
+//   ): Promise<TestCase> {
+//     const parser = new IntentParser();
+//     const intent = await parser.parse(prompt, pageData.url);
+//     console.log("parser:", intent);
 
-    if (needsSelector.includes(data.action)) {
-      return data.selector !== undefined && data.selector.trim().length > 0;
-    }
-    return true;
-  },
-  { message: "Selector is required for this action", path: ["selector"] },
-).refine(
-  (data) => {
-    const needsValue = [
-      "fill",
-      "select",
-      "press",
-      "assert_text",
-      "assert_value",
-    ];
+//     const blockers = intent.riskFlags.filter((r) => r.severity === "blocker");
+//     if (blockers.length > 0) {
+//       console.warn("⚠️ Blockers detected:", blockers);
+//       // We warn but still attempt — the executor will surface a clear
+//       // failure (e.g. cross-origin iframe) rather than silently refusing.
+//     }
 
-    if (needsValue.includes(data.action)) {
-      return data.value !== undefined && data.value.trim().length > 0;
-    }
-    return true;
-  },
-  { message: "Value is required for this action", path: ["value"] },
-);
+//     if (intent.overallComplexity === "simple") {
+//       return this.generateSimpleTestCase(intent, pageData);
+//     }
 
-// Main TestCase Schema with target_url
-const TestCaseSchema = z.object({
-  target_url: z.string().url(),
-  intent: z.enum([
-    "navigation",
-    "form_submission",
-    "login",
-    "search",
-    "data_extraction",
-    "validation",
-    "interaction",
-  ]),
-  confidence: z.number().min(0).max(1),
-  requires_auth: z.boolean().default(false),
-  steps: z.array(StepSchema).min(1),
-  recovery_strategy: z
-    .object({
-      max_attempts: z.number().min(1).max(3),
-      fallback_actions: z.array(z.string()),
-      screenshot_on_failure: z.boolean(),
-    })
-    .optional(),
-  dynamic_wait_conditions: z
-    .array(
-      z.object({
-        type: z.enum([
-          "selector_visible",
-          "selector_hidden",
-          "network_idle",
-          "text_present",
-        ]),
-        selector: z.string().optional(),
-        text: z.string().optional(),
-        timeout_ms: z.number(),
-      }),
-    )
-    .optional(),
-});
+//     return this.generateComplexTestCase(intent, pageData);
+//   }
 
-export type TestCase = z.infer<typeof TestCaseSchema>;
+//   // ─── Simple path — single AI call, no goal decomposition ────
 
-// ============= Free AI Planner (Updated Models) =============
+//   private async generateSimpleTestCase(
+//     intent: ParsedIntent,
+//     pageData: SPAPageData,
+//   ): Promise<TestCase> {
+//     const compressed = compressDOMForAI(pageData);
 
-export class AITestPlanner {
-  private groqClient: OpenAI;
-  private geminiClient: GoogleGenerativeAI;
-  private fallbackModels: Array<{
-    provider: "groq" | "gemini";
-    model: string;
-    client: any;
-  }>;
+//     const systemPrompt = `
+// You are an expert QA automation engineer. Generate a short Playwright test
+// step sequence as a JSON array. Each step must match this shape:
 
-  constructor() {
-    // Groq Client (Free)
-    this.groqClient = new OpenAI({
-      apiKey: process.env.GROQ_API_KEY,
-      baseURL: "https://api.groq.com/openai/v1",
-    });
+// {
+//   "action": one of ${JSON.stringify(VALID_ACTIONS)},
+//   "description": "human readable description",
+//   "selector": "CSS selector, only from the provided element list",
+//   "value": "optional value for fill/assert/select",
+//   "variableName": "optional, only for capture_value",
+//   "optional": false
+// }
 
-    // Gemini Client (Free)
-    this.geminiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// STRICT RULES:
+// - Only use selectors that appear in AVAILABLE ELEMENTS below.
+// - Return ONLY a raw JSON array. No markdown, no prose, no code fences.
+// `;
 
-    // ✅ Updated Free Models (August 2024 - Current)
-    this.fallbackModels = [
-      // Groq ke naye models (Latest)
-      {
-        provider: "groq",
-        model: "llama-3.3-70b-versatile",
-        client: this.groqClient,
-      }, // Best
-      {
-        provider: "groq",
-        model: "llama-3.1-8b-instant",
-        client: this.groqClient,
-      }, // Fast
-      { provider: "groq", model: "gemma2-9b-it", client: this.groqClient }, // Good
-      {
-        provider: "groq",
-        model: "deepseek-r1-distill-llama-70b",
-        client: this.groqClient,
-      }, // New
+//     const userPrompt = `
+// USER GOAL: ${intent.originalPrompt}
 
-      // Gemini ke naye models
-      {
-        provider: "gemini",
-        model: "gemini-1.5-flash",
-        client: this.geminiClient,
-      }, // Fast
-      {
-        provider: "gemini",
-        model: "gemini-1.5-pro",
-        client: this.geminiClient,
-      }, // Powerful
-    ];
-  }
+// AVAILABLE ELEMENTS:
+// ${JSON.stringify(compressed, null, 2)}
 
-  async generateTestCase(prompt: string, pageData: any): Promise<TestCase> {
-    // Step 1: Analyze intent
-    const intent = await this.analyzeIntent(prompt);
-    console.log(
-      `📊 Detected intent: ${intent.intent} with confidence: ${intent.confidence}`,
-    );
+// USER PROVIDED VALUES:
+// ${JSON.stringify(intent.userProvidedValues, null, 2)}
+// `;
 
-    // Step 2: Generate steps with fallback
-    const result = await this.generateWithFallback(prompt, pageData, intent);
+//     const steps = await this.callModelForSteps(systemPrompt, userPrompt);
 
-    // Step 3: Validate output
-    const validated = this.validateTestCase(result, pageData);
+//     return {
+//       target_url: pageData.url,
+//       intent: intent.summary || intent.originalPrompt,
+//       confidence: intent.confidence,
+//       requires_auth: intent.requiresAuth,
+//       steps,
+//       values_to_capture: intent.valuesToCapture,
+//       user_provided_values: intent.userProvidedValues,
+//       risk_flags: intent.riskFlags,
+//     };
+//   }
 
-    // Step 4: Add recovery strategies
-    const withRecovery = this.addRecoveryStrategy(validated);
+//   // ─── Complex path — goal-by-goal generation ──────────────────
 
-    return withRecovery;
-  }
+//   private async generateComplexTestCase(
+//     intent: ParsedIntent,
+//     pageData: SPAPageData,
+//   ): Promise<TestCase> {
+//     const allSteps: TestStep[] = [];
 
-  private async analyzeIntent(
-    prompt: string,
-  ): Promise<{ intent: string; confidence: number }> {
-    const intentPrompt = `
-    Analyze this test prompt and return JSON with intent and confidence score.
-    Intent types: navigation, form_submission, login, search, data_extraction, validation, interaction
-    
-    Prompt: "${prompt}"
-    
-    Return: {"intent": "type", "confidence": 0.95}
-    `;
+//     for (const batch of intent.executionOrder) {
+//       for (const goalId of batch) {
+//         const goal = intent.goals.find((g) => g.id === goalId);
+//         if (!goal) {
+//           console.warn(`Goal "${goalId}" not found in intent.goals — skipping`);
+//           continue;
+//         }
 
-    try {
-      const completion = await this.groqClient.chat.completions.create({
-        model: "llama-3.1-8b-instant", // ✅ Naya model
-        temperature: 0,
-        messages: [
-          { role: "system", content: "Return only JSON. No explanations." },
-          { role: "user", content: intentPrompt },
-        ],
-      });
+//         const goalSteps = await this.generateStepsForGoal(
+//           goal,
+//           intent,
+//           pageData,
+//         );
+//         allSteps.push(...goalSteps);
 
-      const parsed = JSON.parse(completion.choices[0].message.content || "{}");
-      return {
-        intent: parsed.intent || "interaction",
-        confidence: parsed.confidence || 0.7,
-      };
-    } catch (error) {
-      console.warn("Intent analysis failed, using default");
-      return { intent: "interaction", confidence: 0.5 };
-    }
-  }
+//         if (goal.expectsNavigation) {
+//           allSteps.push({
+//             action: "wait_for_navigation",
+//             description: `Wait for page transition after: ${goal.description}`,
+//             wait_after_ms: 2000,
+//             goalId: goal.id,
+//           });
+//         }
+//       }
+//     }
 
-  private async generateWithFallback(
-    prompt: string,
-    pageData: any,
-    intent: { intent: string; confidence: number },
-  ): Promise<any> {
-    // Try all free models in sequence
-    for (const { provider, model, client } of this.fallbackModels) {
-      try {
-        console.log(`🆓 Trying FREE ${provider.toUpperCase()} model: ${model}`);
+//     return {
+//       target_url: pageData.url,
+//       intent: intent.summary,
+//       confidence: intent.confidence,
+//       requires_auth: intent.requiresAuth,
+//       steps: allSteps,
+//       values_to_capture: intent.valuesToCapture,
+//       user_provided_values: intent.userProvidedValues,
+//       risk_flags: intent.riskFlags,
+//     };
+//   }
 
-        let content = "";
+//   // ─── Per-goal step generation — the actual AI call lives here ─
 
-        if (provider === "groq") {
-          const completion = await client.chat.completions.create({
-            model: model,
-            temperature: intent.confidence > 0.8 ? 0.1 : 0.3,
-            messages: [
-              {
-                role: "system",
-                content: this.getSystemPrompt(intent.intent, pageData),
-              },
-              {
-                role: "user",
-                content: this.getUserPrompt(prompt, pageData),
-              },
-            ],
-          });
-          content = completion.choices[0].message.content || "";
-        } else if (provider === "gemini") {
-          const geminiModel = client.getGenerativeModel({ model: model });
-          const result = await geminiModel.generateContent(`
-            ${this.getSystemPrompt(intent.intent, pageData)}
-            
-            ${this.getUserPrompt(prompt, pageData)}
-            
-            Remember: Return ONLY valid JSON. No markdown, no explanations.
-          `);
-          content = result.response.text();
-        }
+//   private async generateStepsForGoal(
+//     goal: AtomicGoal,
+//     intent: ParsedIntent,
+//     pageData: SPAPageData,
+//   ): Promise<TestStep[]> {
+//     const compressed = compressDOMForAI(pageData);
 
-        console.log(`✅ ${provider.toUpperCase()} model responded`);
+//     const systemPrompt = `
+// You are an expert QA automation engineer generating steps for ONE goal
+// within a larger test plan. Return ONLY a raw JSON array of steps, no
+// markdown, no prose, no code fences.
 
-        // Clean and parse response
-        const cleaned = this.cleanResponse(content);
-        const parsed = JSON.parse(cleaned);
+// Each step must match this shape:
+// {
+//   "action": one of ${JSON.stringify(VALID_ACTIONS)},
+//   "description": "human readable description",
+//   "selector": "CSS selector, only from AVAILABLE DOM ELEMENTS",
+//   "value": "optional — use {{variable_name}} to reference captured values",
+//   "variableName": "required only for capture_value steps",
+//   "optional": false
+// }
 
-        // Validate structure
-        if (parsed.steps && parsed.steps.length > 0) {
-          return {
-            target_url: pageData.url,
-            ...parsed,
-            _model_used: `${provider}/${model}`,
-            _confidence: intent.confidence,
-          };
-        }
-      } catch (error) {
-        console.warn(`❌ Free model ${provider}/${model} failed:`, error);
-        continue;
-      }
-    }
+// STRICT RULES:
+// - Only use selectors present in AVAILABLE DOM ELEMENTS.
+// - If this goal must produce values listed in "VALUES THIS GOAL MUST CAPTURE",
+//   include a capture_value step with a matching variableName for each one.
+// - Do not invent selectors. If nothing fits, omit the step rather than guess.
+// `;
 
-    throw new Error("All free models failed to generate valid test case");
-  }
+//     const userPrompt = `
+// GOAL: ${goal.description}
+// GOAL TYPE: ${goal.type}
 
-  private getSystemPrompt(intent: string, pageData: any): string {
-    const availableSelectors = this.extractSelectors(pageData);
+// AVAILABLE DOM ELEMENTS:
+// ${JSON.stringify(compressed, null, 2)}
 
-    return `
-You are an expert QA Automation Engineer.
+// VALUES AVAILABLE FROM PREVIOUS STEPS:
+// ${JSON.stringify(intent.userProvidedValues, null, 2)}
 
-INTENT: ${intent}
-TARGET URL: ${pageData.url}
-AVAILABLE SELECTORS: ${JSON.stringify(availableSelectors)}
+// VALUES THIS GOAL MUST CAPTURE:
+// ${JSON.stringify(goal.produceContext, null, 2)}
 
-STRICT RULES:
-1. Return ONLY valid JSON
-2. Use ONLY selectors from available_selectors list
-3. Never invent selectors
-4. Include wait_after_ms for dynamic content
-5. Add retry_count for critical actions
-6. Provide description for each step
+// POSSIBLE FAILURES TO HANDLE:
+// ${JSON.stringify(goal.possibleFailure, null, 2)}
 
-VALID ACTIONS:
-- click: Click an element (requires selector)
-- fill: Fill input field (requires selector + value)
-- select: Select dropdown option (requires selector + value)
-- wait: Wait for time (requires value in ms)
-- assert_visible: Verify element visible (requires selector)
-- assert_text: Verify text content (requires selector + value)
-- hover: Hover over element (requires selector)
+// Generate ONLY the steps needed for this specific goal.
+// `;
 
-RESPONSE FORMAT:
-{
-  "steps": [
-    {
-      "action": "click",
-      "selector": "#login-btn",
-      "wait_after_ms": 1000,
-      "retry_count": 2,
-      "description": "Click login button"
-    }
-  ],
-  "dynamic_wait_conditions": [
-    {
-      "type": "selector_visible",
-      "selector": "#dashboard",
-      "timeout_ms": 5000
-    }
-  ]
-}
-`;
-  }
+//     const steps = await this.callModelForSteps(
+//       systemPrompt,
+//       userPrompt,
+//       goal.id,
+//     );
+//     return steps;
+//   }
+//   private async generateWithFallback(
+//     systemPrompt: string,
+//     userPrompt: string,
+//   ): Promise<string> {
+//     const prompt = `${systemPrompt}\n\n${userPrompt}`;
 
-  private getUserPrompt(prompt: string, pageData: any): string {
-    return `
-USER PROMPT: ${prompt}
+//     let lastError: any;
 
-PAGE DATA:
-URL: ${pageData.url}
-Title: ${pageData.title || "N/A"}
-Available Elements:
-${JSON.stringify(this.extractRelevantElements(pageData), null, 2)}
+//     for (const modelConfig of this.fallBackModels) {
+//       console.log("BEFORE AI CALL");
 
-Generate steps to accomplish: "${prompt}"
-`;
-  }
+//       try {
+//         console.log(
+//           `🚀 Trying ${modelConfig.provider} -> ${modelConfig.model}`,
+//         );
+//         console.time("AI_CALL");
+//         const response = await modelConfig.client.chat.completions.create(
+//           {
+//             model: modelConfig.model,
+//             temperature: 0,
+//             messages: [
+//               {
+//                 role: "system",
+//                 content: systemPrompt,
+//               },
+//               {
+//                 role: "user",
+//                 content: userPrompt,
+//               },
+//             ],
+//           },
+//           {
+//             timeout: 60_000,
+//           },
+//         );
+//         console.timeEnd("AI_CALL");
+//         console.log("after AI CALL");
+//         const text = response.choices[0]?.message?.content?.trim();
 
-  private extractSelectors(pageData: any): string[] {
-    const selectors: string[] = [];
+//         if (!text) {
+//           throw new Error("Empty response");
+//         }
 
-    const extract = (obj: any) => {
-      if (!obj) return;
-      if (obj.selector) selectors.push(obj.selector);
-      if (obj.id) selectors.push(`#${obj.id}`);
-      if (obj.class) selectors.push(`.${obj.class}`);
-      if (obj.name) selectors.push(`[name="${obj.name}"]`);
-      if (obj.type === "button")
-        selectors.push(`button:has-text("${obj.text}")`);
-      if (Array.isArray(obj)) obj.forEach(extract);
-      if (typeof obj === "object") Object.values(obj).forEach(extract);
-    };
+//         console.log(`✅ Success: ${modelConfig.model}`);
 
-    extract(pageData);
-    return [...new Set(selectors)];
-  }
+//         return text;
+//       } catch (err: any) {
+//         lastError = err;
 
-  private extractRelevantElements(pageData: any): any {
-    const elements: any = {};
+//         console.warn(
+//           `❌ ${modelConfig.provider} (${modelConfig.model}) failed:`,
+//           err.message,
+//         );
+//       }
+//     }
 
-    if (pageData.buttons) elements.buttons = pageData.buttons;
-    if (pageData.inputs) elements.inputs = pageData.inputs;
-    if (pageData.forms) elements.forms = pageData.forms;
-    if (pageData.links) elements.links = pageData.links;
+//     throw new Error(
+//       `All fallback models failed.\nLast Error: ${lastError?.message}`,
+//     );
+//   }
+//   // ─── Shared AI call + parsing + validation ───────────────────
 
-    if (Object.keys(elements).length === 0 && pageData.html) {
-      const inputMatches =
-        pageData.html.match(/<input[^>]*id=["']([^"']+)["']/g) || [];
-      elements.inputs = inputMatches
-        .map((m: string) => m.match(/id=["']([^"']+)["']/)?.[1])
-        .filter(Boolean);
-    }
+//   private async callModelForSteps(
+//     systemPrompt: string,
+//     userPrompt: string,
+//     goalId?: string,
+//   ): Promise<TestStep[]> {
+//     const raw = await this.generateWithFallback(systemPrompt, userPrompt);
 
-    return elements;
-  }
+//     const cleaned = this.stripCodeFences(raw);
 
-  private cleanResponse(content: string): string {
-    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, "");
-    cleaned = cleaned.replace(/```json\s*/g, "");
-    cleaned = cleaned.replace(/```\s*/g, "");
-    cleaned = cleaned.replace(/```javascript\s*/g, "");
+//     let parsed: unknown;
+//     try {
+//       parsed = JSON.parse(cleaned);
+//     } catch (err) {
+//       console.error("Failed to parse AI step output:", cleaned);
+//       return [];
+//     }
 
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
+//     if (!isValidStepArray(parsed)) {
+//       console.error("AI output did not match TestStep[] shape:", parsed);
+//       return [];
+//     }
 
-    return jsonMatch[0];
-  }
+//     // Tag each step with its originating goal for debugging / re-planning
+//     return parsed.map((step) => ({
+//       ...step,
+//       goalId: step.goalId ?? goalId,
+//     }));
+//   }
 
-  private validateTestCase(testCase: any, pageData: any): TestCase {
-    try {
-      const validated = TestCaseSchema.parse({
-        target_url: testCase.target_url || pageData.url,
-        intent: testCase.intent || "interaction",
-        confidence: testCase._confidence || 0.7,
-        requires_auth: testCase.requires_auth || false,
-        steps: testCase.steps || [],
-        recovery_strategy: testCase.recovery_strategy,
-        dynamic_wait_conditions: testCase.dynamic_wait_conditions,
-      });
-
-      return validated;
-    } catch (error) {
-      console.error("Validation failed:", error);
-
-      return {
-        target_url: pageData.url,
-        intent: "interaction",
-        confidence: 0.3,
-        requires_auth: false,
-        steps: [
-          {
-            action: "wait",
-            value: "1000",
-            wait_after_ms: 1000,
-            retry_count: 1,
-            description: "Fallback wait step due to validation error",
-            optional: false,
-          },
-        ],
-      };
-    }
-  }
-
-  private addRecoveryStrategy(testCase: TestCase): TestCase {
-    if (!testCase.recovery_strategy) {
-      testCase.recovery_strategy = {
-        max_attempts: 2,
-        fallback_actions: ["refresh_page", "wait_retry"],
-        screenshot_on_failure: true,
-      };
-    }
-
-    if (
-      !testCase.dynamic_wait_conditions ||
-      testCase.dynamic_wait_conditions.length === 0
-    ) {
-      testCase.dynamic_wait_conditions = [
-        {
-          type: "network_idle",
-          timeout_ms: 5000,
-        },
-      ];
-    }
-
-    return testCase;
-  }
-}
-
-// ============= Usage =============
-
-export async function generateTestCase(prompt: string, pageData: any) {
-  const planner = new AITestPlanner();
-  return await planner.generateTestCase(prompt, pageData);
-}
+//   private stripCodeFences(text: string): string {
+//     return text
+//       .trim()
+//       .replace(/^```(?:json)?\s*/i, "")
+//       .replace(/```\s*$/i, "")
+//       .trim();
+//   }
+// }

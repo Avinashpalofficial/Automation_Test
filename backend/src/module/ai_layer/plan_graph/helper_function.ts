@@ -19,6 +19,18 @@ export function step(
     ...extra,
   };
 }
+
+// ── helper: description se quoted value nikalo ──────────────
+// "... with 'student'"  ->  student
+// '... with "Password123"' -> Password123
+export function quotedLiteral(desc: string): string | undefined {
+  // Pehle "with/to/as/=" ke baad wali quoted value (asli typed value)
+  const afterKw = desc.match(/\b(?:with|to|as|=)\s*['"]([^'"]+)['"]/i);
+  if (afterKw) return afterKw[1];
+  // Warna last quoted segment (field-name vs value confusion se bachne ke liye)
+  const all = [...desc.matchAll(/['"]([^'"]+)['"]/g)];
+  return all.length ? all[all.length - 1][1] : undefined;
+}
 export function isInitialNavigation(goal: AtomicGoal): boolean {
   const desc = goal.description.toLowerCase();
   const looksLikeUrlNav =

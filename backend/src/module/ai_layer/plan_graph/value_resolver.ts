@@ -9,6 +9,7 @@
 
 import { AtomicGoal } from "../intent_parser/intent_parser_type";
 import { PlanContext } from "./plan_graph.types";
+import { quotedLiteral } from "./helper_function";
 const SECRET_KEYWORDS = [
   "password",
   "api key",
@@ -37,12 +38,17 @@ export interface ResolvedValue {
   isSecret: boolean; // true -> requiredSecrets mein add karo
   secretKey?: string; // e.g. "password"
 }
+
 export function resolveValueForGoal(
   goal: AtomicGoal,
   ctx: PlanContext,
 ): ResolvedValue {
   const desc = goal.description.toLowerCase();
 
+  const literal = quotedLiteral(goal.description);
+  if (literal !== undefined) {
+    return { value: literal, isSecret: false };
+  }
   // ── 1. SECRET detection ──────────────────────────────────
   const secretHit = SECRET_KEYWORDS.find((k) => desc.includes(k));
   if (secretHit) {

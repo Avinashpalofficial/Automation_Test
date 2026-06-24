@@ -3,7 +3,7 @@ export type GoalType =
   | "find_element" // search krna
   | "interact" //click,fill,select
   | "extract_value"
-  | "asert" //verify karna
+  | "assert" //verify karna
   | "wait_condition" //kuch hone ka wait krna
   | "conditional"; //agar X ho to Y kro
 
