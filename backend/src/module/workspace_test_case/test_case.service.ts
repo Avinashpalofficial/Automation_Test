@@ -24,6 +24,7 @@ interface CreateTestCaseInput {
 interface RunTestCaseInput {
   testCaseId: string;
   createdBy: string;
+  runnerType?: string;
 }
 
 export async function createTestCaseService({

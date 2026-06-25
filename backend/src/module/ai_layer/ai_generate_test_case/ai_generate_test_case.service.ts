@@ -1,7 +1,9 @@
-import { analyzePage } from "../page-analyzer.service";
-import { generateTestCase } from "../ai_planner/ai_planner.service";
 import { createTestCaseService } from "../../workspace_test_case/test_case.service";
 import { runTestCaseService } from "../../workspace_test_case/test_case.service";
+import { AITestPlanner } from "../ai_planner/ai_planner.service";
+// import { IntentParser } from "../intent_parser/intent_parser.service";
+import { analyzePageDeep } from "../page_analyzer/spa-page-analyzer.service";
+// import { buildPlanGraph } from "../plan_graph/plan_graph.service";
 interface GenerateAiTestCaseInput {
   prompt: string;
   url: string;
@@ -16,28 +18,35 @@ export async function generateAiTestCaseService({
   suiteId,
   createdBy,
 }: GenerateAiTestCaseInput) {
-  const pageData = await analyzePage(url);
+  const pageData = await analyzePageDeep(url);
+  // const intent = await new IntentParser().parse(prompt, pageData.url);
 
-  const generated = await generateTestCase(prompt, pageData);
+  const planner = new AITestPlanner();
+  const plan = await planner.generateTestCase(prompt, pageData);
   console.log("workspaceId:", workspaceId);
   console.log("createdBy:", createdBy);
   const testCase = await createTestCaseService({
     workspaceId,
     suiteId,
     name: prompt,
-    description: prompt,
-    targetUrl: generated.target_url,
-    steps: generated.steps,
+    description: plan.intent || prompt,
+    targetUrl: url,
+    steps: plan.steps,
     createdBy,
   });
 
   const execution = await runTestCaseService({
     testCaseId: testCase.id,
     createdBy,
+    runnerType: "ai_playwright",
   });
 
   return {
     testCase,
     execution,
+    plan: {
+      requiresAuth: plan.requires_auth,
+      confidence: plan.confidence,
+    },
   };
 }

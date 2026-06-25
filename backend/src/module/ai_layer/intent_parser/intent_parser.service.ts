@@ -16,6 +16,11 @@ export class IntentParser {
     this.fallBackModels = [
       {
         provider: "nvidia",
+        model: "meta/llama-3.1-8b-instruct",
+        client: this.nvidiaClient,
+      },
+      {
+        provider: "nvidia",
         model: "meta/llama-3.3-70b-instruct",
         client: this.nvidiaClient,
       },
@@ -24,11 +29,7 @@ export class IntentParser {
         model: "nvidia/nemotron-3-super-120b-a12b",
         client: this.nvidiaClient,
       },
-      {
-        provider: "nvidia",
-        model: "meta/llama-3.1-8b-instruct",
-        client: this.nvidiaClient,
-      },
+
       {
         provider: "nvidia",
         model: "nemotron-3-ultra-550b-a55b",

@@ -8,7 +8,6 @@ import { RouteInfo } from "../../../types/ai.types";
 import { NetworkRequest } from "../../../types/ai.types";
 import { InputInfo } from "../../../types/ai.types";
 import { chromium } from "playwright";
-import { Page } from "playwright";
 import { discoverInteractivePanels } from "../page_analyzer/page-analyzer.service";
 import { detectFramework } from "../page_analyzer/page-analyzer.service";
 import { waitForSPAReady } from "../page_analyzer/page-analyzer.service";
